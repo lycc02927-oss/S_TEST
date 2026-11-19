@@ -1,0 +1,13 @@
+{
+  "output_dir": "results",
+  "input_timeout_ms": 20000,
+  "run_timeout_ms": 1800000,
+  "continue_on_error": true,
+  "common_constants": {},
+  "read_constants": ["PGEC_CPQPBOP_SCAN_SCENARIO.input.scan_retry_time"],
+  "metric_logger_prefixes": [],
+  "metrics": {},
+  "cases": [
+    {"name": "current_constants", "repeat": 10, "constants": {}}
+  ]
+}
