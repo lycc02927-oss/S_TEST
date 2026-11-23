@@ -208,6 +208,29 @@ class SweepTests(unittest.TestCase):
         self.assertTrue(manager.data[INPUT + "search_select_ed"])
         self.assertFalse(manager.data[INPUT + "search_select_pf"])
 
+    def test_actual_measurement_log_pipeline_persists_history_and_aggregates_best(self):
+        class LoggedFixture(FakeFixture):
+            def start(self):
+                self.round += 1
+                for index, value in enumerate([0.5, 0.8, 0.6], 60):
+                    logging.getLogger("CPQPBOP").info(
+                        "Measure result: MeasureResult(plasma_pos_setpoint=PlasmaPosition(x=%s, y=11.26, z=-9.08), "
+                        "plasma_pos_mp=PlasmaPosition(x=%s, y=11.26, z=-9.08), target_value=%s)", index, index, value)
+                    logging.getLogger("CPQPBOP").info(
+                        "Update iterations: %s, plasma position:PlasmaPosition(x=%s, y=11.26, z=-9.08), ed energy: %s.",
+                        index, index, value)
+                self.state = "result"
+        settings = self.settings()
+        settings["metrics"] = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))["metrics"]
+        with tempfile.TemporaryDirectory() as directory:
+            output = self.execute(directory, LoggedFixture(), settings=settings)
+            records = self.records(directory)
+            self.assertTrue(all(record["best_value"] == 0.8 and record["best_x"] == 61 and record["iterations"] == 62
+                                for record in records))
+            self.assertTrue(all(record["best_value_source"] == "measure_result_observed_maximum" for record in records))
+            self.assertEqual(len(list((output / "history").iterdir())), 3)
+            self.assertEqual(len((output / records[0]["history_file"]).read_text().splitlines()), 6)
+
     def test_readback_mismatch_prevents_start_and_restores(self):
         class Mismatch(FakeManager):
             def write_test_constants(self, values):

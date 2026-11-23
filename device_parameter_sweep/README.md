@@ -43,8 +43,9 @@
 | `parameters.py` | 7 个参数的路径、类型、允许范围及 4 个缺失项 | proto 或算法映射改变时修改 |
 | `plan.py` | 展开单因素计划并预览 | 通常不用 |
 | `runner.py` | 写入、回读、Start、采集、Reset、恢复 | 通常不用 |
+| `log_capture.py` | 解析实际 MeasureResult 和 Update iterations 日志，保存量测历史 | 部署端日志格式改变时修改 |
 | `constant_manager.py` | 继承仓库原 manager；增加副本预检和按字段恢复 | 通常不用 |
-| `tests/test_sweep.py`、`tests/test_constant_manager.py` | 不连接设备的回归验证 | 通常不用 |
+| `tests/test_*.py` | 不连接设备的回归验证 | 通常不用 |
 
 复用仓库中的 `cpd_modules/pbop_results.py` 保存日志和统计，不需要复制、替换已有工具代码。
 
@@ -62,7 +63,7 @@
 "repeat": 100
 ```
 
-此时是 **26 组共 2600 次**，不是所有配置合计 100 次。`best_value_mean` 是该组成功且采集到有效结果的实验最终最佳值平均数；同时看 `best_value_count`，不要把少于 100 个样本当成 100 次平均。先减少 `sweeps` 或 `repeat` 调通一小批，再扩展实验规模。只测 ED 可将 `targets` 改为 `["ed"]`，只测 ED/PF 则用 `["ed_pf_ratio"]`。
+此时是 **26 组共 2600 次**，不是所有配置合计 100 次。`best_value_mean` 默认是该组各次实验“日志中观测到的最高目标值”的平均数；同时看 `best_value_count`，不要把少于 100 个样本当成 100 次平均。若接入实际最终结果对象，则统计该对象的最佳值。先减少 `sweeps` 或 `repeat` 调通一小批，再扩展实验规模。只测 ED 可将 `targets` 改为 `["ed"]`，只测 ED/PF 则用 `["ed_pf_ratio"]`。
 
 默认 `max_search_time=3600` 秒，`run_timeout_ms=3900000` 毫秒，留有结束处理时间。78 次若每次耗满软件时限，仅寻优就约 78 小时，另外还有准备和 Reset。不要在同一台设备并发启动多个批次。
 
@@ -76,7 +77,7 @@
 python -m device_parameter_sweep.plan
 ```
 
-编辑 `sweep_config.json`，按第 5 节接好真实结果采集后，显式运行设备入口：
+编辑 `sweep_config.json`，核对第 5 节的日志语义及第 6 节常数刷新行为后，显式运行设备入口：
 
 ```bash
 python -m pytest device_parameter_sweep/test_parameter_sweep.py -s -v --log-cli-level=INFO
@@ -96,9 +97,29 @@ PBOP_SWEEP_CONFIG=/absolute/path/my_sweep.json PBOP_SWEEP_OUTPUT_DIR=/absolute/p
 
 `PBOP_SWEEP_CONFIG` / `PBOP_SWEEP_OUTPUT_DIR` 独立于旧入口的 `PBOP_CONFIG` / `PBOP_OUTPUT_DIR`，不会误用旧批测配置。
 
-## 5. 必须接入实际结果来源
+## 5. 已接入提供的真实量测日志
 
-**proto 定义的是输入/配置，不包含最终最佳值和结果对象路径。当前没有提供真实结果日志，所以仓库不能预先知道如何从你的部署程序中提取这些数值。** 默认约定读取本进程的 `PBOP_RESULT` JSON 日志，`best_value` 是必需指标；如果实际程序未输出该日志，测试会在第一轮明确报“缺少必需结果指标”，不会用 0 或上一轮结果填充。
+默认已接入本次提供的格式，不需要为这个格式额外增加 `PBOP_RESULT` 日志：
+
+```text
+Measure result: MeasureResult(plasma_pos_setpoint=PlasmaPosition(x=9.32, y=11.26, z=-9.08), plasma_pos_mp=PlasmaPosition(x=9.32, y=11.259999999999998, z=-9.079999999999998), target_value=0.5660453284463942)
+Update iterations: 62, plasma position:PlasmaPosition(x=9.32, y=11.26, z=-9.08), ed energy: 0.5660453284463942.
+```
+
+| 默认结果列 | 提取规则 |
+| --- | --- |
+| `best_value` | 本轮所有已捕获 `MeasureResult.target_value` 中的最大值 |
+| `best_x`、`best_y`、`best_z` | 该最大值对应的 `plasma_pos_setpoint`；相同最高值取首次出现的位置 |
+| `best_mp_x`、`best_mp_y`、`best_mp_z` | 同一量测记录里的 `plasma_pos_mp` 实测位置 |
+| `iterations` | 本轮 `Update iterations` 中最大的日志编号；不擅自加减初始点数量 |
+| `measurement_log_count` | 匹配到的量测日志条数；重复日志也计入，不等同于唯一量测次数 |
+| `best_value_source` | 默认明确标记 `measure_result_observed_maximum` |
+
+`Update iterations` 的值是当前点的值，程序不会把最后一条当作最高值，也不会用其中的 `ed energy` 标签推断 ED/PF。目标数值只从 `MeasureResult.target_value` 提取；ED/PF 模式下它是否已经是比值，须与部署端实际定义一致。默认 `best_value` 为必需指标，未匹配到量测日志会使本轮失败，不会用 0 或上一轮值填充。
+
+这是**本轮量测日志中的最佳观测**，不等同于已经拿到算法最终推荐位置及其复测结果；初始化、验证等阶段若输出同格式量测，也会纳入观测历史。最高观测值还包含噪声的影响，不同量测次数会影响最高值，评估推荐点质量时应接入实际最终结果或复测结果。`iterations` 只是最大报告编号，不代表已经确认因收敛而停止。完整量测/迭代事件保存在逐轮 `history/*.jsonl`，重复输出不影响最大值和最大编号。
+
+若要统计算法**最终推荐结果**而不是观测历史最高值，可改用下面三种方式之一，均在 Reset 前采集：
 
 三种方式任选其一，均在 Reset 前采集：
 
@@ -138,7 +159,7 @@ logger.info("PBOP_RESULT %s", json.dumps({
 }))
 ```
 
-方式 C 要在部署程序中自行接入；本仓库未擅自修改它。日志方式仅捕获当前 Python 进程传播到 root logger 的 `logging` 消息，不包含 `print()`、子进程或远端日志文件。源 logger 须允许相应级别。每轮新建采集器，参数刷新阶段的旧日志不参与指标提取；仍应确保部署侧不把上轮延迟日志送进下一轮。按实际情况配置 `metric_logger_prefixes` 限定指标来源。
+方式 C 要在部署程序中自行接入；本仓库未擅自修改它。使用 C 时将默认 `observation_key` 配置改为对应的 `json_key`，例如 `"best_value": {"json_key": "best_value", "required": true}`。每个指标只选 `observation_key`、`fixture_path`、`log_pattern`、`json_key` 中一种。日志方式仅捕获当前 Python 进程传播到 root logger 的 `logging` 消息，不包含 `print()`、子进程或远端日志文件。源 logger 须允许相应级别。每轮新建采集器，参数刷新阶段的旧日志不参与指标提取；仍应确保部署侧不把上轮延迟日志送进下一轮。按实际情况配置 `metric_logger_prefixes` 限定指标来源；你提供的 logger 名为 `CPQPBOP`，区分大小写。
 
 只想先检查 Start/Reset 和常数读写，可临时将 `metrics` 设为 `{}`；此时无最佳值统计，不能评估寻优质量。`passed` 只表示配置流程、必需指标和 Reset 成功，不代表已经检验算法结果页的业务成功标志、全局最优性或真实收敛。
 
@@ -186,13 +207,14 @@ ED/ED/PF：已按本次确认的设备映射实现，下表的选择值每轮都
 | `runs.jsonl`、`runs.csv` | 每轮的参数、回读值、结果、耗时、错误和 Reset 状态 |
 | `summary.csv`、`comparison.csv` | 相同的分组汇总，CSV 可直接用 Excel 打开 |
 | `logs/round_*.log` | 每轮独立运行日志 |
+| `history/round_*.jsonl` | 逐条量测位置、目标值、实测位置及迭代编号事件 |
 | `restoration.json` | 原常数恢复是否成功以及失败原因 |
 
 重点看 `comparison.csv` 中的 `target`、`changed_parameter`、`parameter_value`、`planned`、`executed`、`passed`、`failed`、`best_value_count`、`best_value_mean`、`best_value_std`、`iterations_mean`、`duration_s_mean` 和 `runtime_verified_passed`。只有配置了对应指标才会有该指标的统计列。成功率分母是已执行次数；未执行次数为 `planned-executed`。失败轮次不混入成功轮次的均值，缺失可选指标留空并记录错误，不能忽略样本数比较平均值。
 
 默认任何一轮失败即结束当前批次；设置 `continue_on_error=true` 后，只有 Reset 回到输入状态才会继续。Reset 失败始终停止，且不会在仍运行/结果状态时写恢复常数。恢复失败也会使测试失败，查看 `restoration.json`，待设备回到输入状态后根据原值备份处理。断电或强制杀进程无法执行 Python finally，原值文件仍保留；恢复使用最新整对象，只修改本批触及字段，不整体覆盖 CPD 更新过的其他值。测试期间应避免另一操作者并发修改相同字段。
 
-此版本采集每次完整寻优的最终指标，不从未知部署接口推测逐迭代历史或理论最优值。若需要 X/Y/Z 到理论最优位置的偏差，需额外提供对应模型的理论位置及实际结果来源，不能用常数的范围中心代替。
+此版本保存实际日志中能够取得的量测/迭代历史，不推测未输出的 GP/EI 内部数据或理论最优值。若需要 X/Y/Z 到理论最优位置的偏差，需额外提供对应模型的理论位置，不能用常数的范围中心代替。
 
 ## 9. 缺失的 4 个参数怎样补齐
 
@@ -214,4 +236,4 @@ python -m unittest discover -s tests -v
 python -m device_parameter_sweep.plan
 ```
 
-覆盖单因素隔离、范围/类型/缺失字段拒绝、全部方案预检、结果在 Reset 前采集、回读不符禁止 Start、失败样本排除、超时后恢复、Reset 失败停止、运行时缓存不符、原常数恢复及恢复失败。这里的 App、常数服务和结果是模拟对象，设备联调仍须在实际项目环境执行。
+覆盖实际日志格式和数字内空白、历史最高值与最后一次量测区分、设定/实测位置、迭代编号、重复日志、单因素隔离、范围/类型/缺失字段拒绝、全部方案预检、结果在 Reset 前采集、回读不符禁止 Start、失败样本排除、超时后恢复、Reset 失败停止、运行时缓存不符、原常数恢复及恢复失败。这里的 App、常数服务和结果是模拟对象，设备联调仍须在实际项目环境执行。

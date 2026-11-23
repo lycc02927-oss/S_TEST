@@ -33,11 +33,15 @@
   },
   "context": {"model_label": "device"},
   "metrics": {
-    "best_value": {"json_key": "best_value", "required": true},
-    "best_x": {"json_key": "best_x"},
-    "best_y": {"json_key": "best_y"},
-    "best_z": {"json_key": "best_z"},
-    "iterations": {"json_key": "iterations"}
+    "best_value": {"observation_key": "best_value", "required": true},
+    "best_x": {"observation_key": "best_x"},
+    "best_y": {"observation_key": "best_y"},
+    "best_z": {"observation_key": "best_z"},
+    "best_mp_x": {"observation_key": "best_mp_x"},
+    "best_mp_y": {"observation_key": "best_mp_y"},
+    "best_mp_z": {"observation_key": "best_mp_z"},
+    "iterations": {"observation_key": "last_iteration"},
+    "measurement_log_count": {"observation_key": "measurement_log_count"}
   },
   "metric_logger_prefixes": [],
   "hooks": {"before_start": null, "verify_runtime": null},

@@ -10,7 +10,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from cpd_modules.pbop_results import ResultWriter, RoundCapture
+from cpd_modules.pbop_results import ResultWriter
+from device_parameter_sweep.log_capture import ObservationCapture
 from device_parameter_sweep.plan import DEFAULT_CONFIG, load_settings, prepare_config
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,8 @@ def load_hook(path):
 class SweepResultWriter(ResultWriter):
     def __init__(self, output_root, config):
         super().__init__(output_root, config)
-        self.columns.extend(["runtime_verified", "runtime_constants"])
+        self.columns.extend(["runtime_verified", "runtime_constants", "history_file", "best_value_source"])
+        (self.directory / "history").mkdir()
 
     def _csv(self, filename, rows, columns=None):
         if filename in ("summary.csv", "comparison.csv"):
@@ -52,6 +54,7 @@ class SweepResultWriter(ResultWriter):
                     "changed_parameter": case["changed_parameter"],
                     "parameter_value": case["parameter_value"],
                     "context": self.config.get("context", {}),
+                    "best_value_source": "measure_result_observed_maximum" if "observation_key" in self.config["metrics"].get("best_value", {}) else "configured_metric",
                     "runtime_verified_passed": sum(
                         record["case_index"] == index and record["status"] == "passed"
                         and record.get("runtime_verified", False) for record in self.records
@@ -85,7 +88,7 @@ def run_sweep(fixture, qtbot, project_root, config_path=None, manager_factory=No
     with tempfile.TemporaryDirectory() as temporary:
         config = prepare_config(settings, temporary)
     for name in config["metrics"]:
-        if name in {"runtime_verified", "runtime_constants"}:
+        if name in {"runtime_verified", "runtime_constants", "history_file", "best_value_source"}:
             raise ValueError("指标名冲突: " + name)
     before_start = load_hook(config.get("hooks", {}).get("before_start"))
     verify_runtime = load_hook(config.get("hooks", {}).get("verify_runtime"))
@@ -138,16 +141,19 @@ def run_sweep(fixture, qtbot, project_root, config_path=None, manager_factory=No
                     "run": run_index, "case_index": case_index, "case": case["name"], "repeat": repeat,
                     "status": "failed", "result_reached": False, "reset_ok": False,
                     "runtime_verified": False, "runtime_constants": {},
+                    "best_value_source": "measure_result_observed_maximum" if "observation_key" in config["metrics"].get("best_value", {}) else "configured_metric",
                     "started_at": datetime.now().astimezone().isoformat(),
                     "requested_constants": requested, "actual_constants": {},
                     "metric_errors": {}, "duration_s": None, "error": "本轮中断或未完成",
                     "log_file": "logs/round_{:04d}.log".format(run_index),
+                    "history_file": "history/round_{:04d}.jsonl".format(run_index),
                 }
                 round_start = time.monotonic()
                 operation_start = None
                 start_attempted = False
-                capture = RoundCapture(writer.directory / record["log_file"], config["metrics"],
-                                       config.get("metric_logger_prefixes", []))
+                capture = ObservationCapture(writer.directory / record["log_file"], config["metrics"],
+                                             config.get("metric_logger_prefixes", []),
+                                             writer.directory / record["history_file"])
                 capture_installed = False
                 try:
                     qtbot.waitUntil(fixture.at_input_state, timeout=input_timeout)

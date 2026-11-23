@@ -7,6 +7,7 @@ import random
 from pathlib import Path
 
 from cpd_modules.pbop_batch import load_config as validate_batch_config
+from device_parameter_sweep.log_capture import OBSERVATION_KEYS
 from device_parameter_sweep.parameters import (
     INPUT, PARAMETERS, UNAVAILABLE, validate_common, validate_parameter, validate_scalar,
 )
@@ -158,9 +159,20 @@ def build_plan(settings):
 def prepare_config(settings, directory):
     """复用仓库已有的指标正则/路径校验；在写入任何设备常数前执行。"""
     config = build_plan(settings)
+    validation = copy.deepcopy(config)
+    for name, spec in validation["metrics"].items():
+        if "observation_key" in spec:
+            if spec["observation_key"] not in OBSERVATION_KEYS:
+                raise ValueError("未知 observation_key: " + str(spec["observation_key"]))
+            if any(key in spec for key in ("log_pattern", "fixture_path", "json_key")):
+                raise ValueError("指标 {} 只能配置一种采集方式".format(name))
+            # 复用旧校验器的名称冲突检查；此占位路径只用于校验，不用于设备采集。
+            del spec["observation_key"]
+            spec["fixture_path"] = "_observation_validation_only"
     path = Path(directory) / "config.json"
-    path.write_text(json.dumps(config, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-    return validate_batch_config(path)
+    path.write_text(json.dumps(validation, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+    validate_batch_config(path)
+    return config
 
 
 def main():
