@@ -1,0 +1,51 @@
+{
+  "repeat": 3,
+  "targets": ["ed", "ed_pf_ratio"],
+  "baseline": {
+    "n_restarts_optimizer": 10,
+    "xi_init": 0.1,
+    "xi_final": 0.001,
+    "convergence_point_num": 5,
+    "convergence_tol": 0.1,
+    "min_dis": 0.5,
+    "platform_error": 0.02
+  },
+  "sweeps": {
+    "n_restarts_optimizer": [0, 10, 20],
+    "xi_init": [0.01, 0.1, 0.3],
+    "xi_final": [0.001, 0.005, 0.01],
+    "convergence_point_num": [3, 5, 10],
+    "convergence_tol": [0.05, 0.1, 0.2],
+    "min_dis": [0.0, 0.5, 2.0]
+  },
+  "common_constants": {
+    "PGEC_CPQPBOP_SEARCH_SCENARIO.input.search_objective": "Maximum",
+    "PGEC_CPQPBOP_SEARCH_SCENARIO.input.max_iteration": 70,
+    "PGEC_CPQPBOP_SEARCH_SCENARIO.input.initial_sampling_num": 30,
+    "PGEC_CPQPBOP_SEARCH_SCENARIO.input.max_search_time": 3600,
+    "PGEC_CPQPBOP_SEARCH_SCENARIO.input.convergence_enable": true,
+    "PGEC_CPQPBOP_SEARCH_SCENARIO.input.convergence_tol_threshold": 0.1
+  },
+  "plateau": {
+    "enabled": false,
+    "search_objective": null,
+    "values": [0.01, 0.02, 0.05]
+  },
+  "context": {"model_label": "device"},
+  "metrics": {
+    "best_value": {"json_key": "best_value", "required": true},
+    "best_x": {"json_key": "best_x"},
+    "best_y": {"json_key": "best_y"},
+    "best_z": {"json_key": "best_z"},
+    "iterations": {"json_key": "iterations"}
+  },
+  "metric_logger_prefixes": [],
+  "hooks": {"before_start": null, "verify_runtime": null},
+  "require_runtime_verification": false,
+  "continue_on_error": false,
+  "randomize_case_order": true,
+  "seed": 42,
+  "input_timeout_ms": 20000,
+  "run_timeout_ms": 3900000,
+  "output_dir": "results/device_parameter_sweep"
+}
